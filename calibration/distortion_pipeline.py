@@ -75,7 +75,7 @@ class DistortionPipeline:
         self.prior_coeffs = None
         self.current_results = None
         self.successful_mag_bin = None
-        self.naxis1 = 2048  # Default, updated on load
+        self.naxis1 = 2048  # Default
         self.naxis2 = 2048
 
     def prepare_and_load_catalogs(self, xymq_file, fits_file, ref_file):
@@ -89,7 +89,7 @@ class DistortionPipeline:
             source_method=self.config.source_extraction_method,
         )
 
-        # Read image dimensions for dynamic plotting/fitting limits
+        # Read image dimensions
         with fits.open(fits_file) as hdul:
             self.naxis1 = hdul[1].header.get("NAXIS1", 2048)
             self.naxis2 = hdul[1].header.get("NAXIS2", 2048)
@@ -222,6 +222,7 @@ class DistortionPipeline:
         weights = self._calculate_weights(obs)
 
         # Define detector bounds for normalization
+        # We keep using self.naxis1 here as it helps fitting stability even if plotting is fixed
         x_min = 0 - self.aperture.XSciRef
         x_max = self.naxis1 - self.aperture.XSciRef
         y_min = 0 - self.aperture.YSciRef
@@ -307,8 +308,9 @@ class DistortionPipeline:
 
         # 1. Setup Grid for Plotting
         grid_n = 20
-        x_edges = np.linspace(0, self.naxis1, grid_n + 1)
-        y_edges = np.linspace(0, self.naxis2, grid_n + 1)
+        # Use simple 2048 grid to match plotting code expectations
+        x_edges = np.linspace(0, 2048, grid_n + 1)
+        y_edges = np.linspace(0, 2048, grid_n + 1)
         xc = (x_edges[:-1] + x_edges[1:]) / 2.0
         yc = (y_edges[:-1] + y_edges[1:]) / 2.0
         gx, gy = np.meshgrid(xc, yc)
@@ -319,7 +321,7 @@ class DistortionPipeline:
         gx_cen = gx_flat - xref
         gy_cen = gy_flat - yref
 
-        max_dim = float(max(self.naxis1, self.naxis2))
+        max_dim = 2048.0
 
         # 2. Fit & Evaluate BEFORE Model (Standard - Raw)
         debug_data = self.current_results.get("grid_debug", {})
@@ -358,6 +360,7 @@ class DistortionPipeline:
         # 4. Generate Plots
         plot_label = f"{self.config.file_root}_{self.config.aperture_name}"
 
+        # Removed 'dims=' argument here to fix the error
         plot_comparison_models(
             gx_flat,
             gy_flat,
@@ -367,7 +370,6 @@ class DistortionPipeline:
             dy_model_after,
             self.config.plot_dir,
             plot_label,
-            dims=(self.naxis1, self.naxis2),
         )
 
         plot_results = self.current_results.copy()
@@ -375,12 +377,9 @@ class DistortionPipeline:
         plot_results["y_sci_used"] = self.current_results["y_sci_used"] + yref
 
         plot_residuals(plot_results, self.config.plot_dir, plot_label)
-        plot_trends(
-            plot_results,
-            self.config.plot_dir,
-            plot_label,
-            dims=(self.naxis1, self.naxis2),
-        )
+
+        # Removed 'dims=' argument here as well
+        plot_trends(plot_results, self.config.plot_dir, plot_label)
 
     def write_siaf_table(self, filename):
         """Writes the coefficients to a standard text format."""
