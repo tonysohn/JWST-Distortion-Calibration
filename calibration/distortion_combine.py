@@ -1,14 +1,13 @@
 """
 JWST Distortion Combination Module
 Usage:
-    python distortion_combine.py [--input_dir DIR] [--output_dir DIR] [--sigma 2.5]
+    python -m calibration.distortion_combine [--input_dir DIR] [--output_dir DIR] [--sigma 2.5]
 
 Description:
     1. Scans for *_distortion_coeffs.txt files.
     2. Calculates a sigma-clipped mean (robust average).
     3. Generates a stability plot.
-    4. Writes a master solution file with standardized naming:
-       <instr>_siaf_distortion_<aper>_<filter>.txt
+    4. Writes a master solution file with standardized naming.
 """
 
 import argparse
@@ -22,7 +21,7 @@ from astropy.stats import sigma_clip
 
 # --- TRY IMPORTING DEFAULTS FROM RUN_CALIBRATION ---
 try:
-    import run_calibration
+    from . import run_calibration
 
     # run_calibration.OUTPUT_DIR usually points to the base cal folder (e.g. ./niriss_calibration)
     # The results are inside /results subdirectory.
@@ -41,6 +40,9 @@ def get_metadata_from_fits(data_dir):
     """
     Scans the data directory for a FITS file to extract Instrument, Aperture, and Filter.
     Returns lowercase strings: (instr, aper, filt)
+
+    Logic:
+    - If FILTER == 'CLEAR' (common in NIRISS), use PUPIL keyword for filter name.
     """
     search_pattern = os.path.join(data_dir, "*.fits")
     files = sorted(glob.glob(search_pattern))
@@ -61,7 +63,17 @@ def get_metadata_from_fits(data_dir):
                 .strip()
                 .lower()
             )
-            filt = header.get("FILTER", "unknown").strip().lower()
+
+            # --- FILTER LOGIC ---
+            filt_key = header.get("FILTER", "unknown").strip().upper()
+            pupil_key = header.get("PUPIL", "unknown").strip().upper()
+
+            if filt_key == "CLEAR":
+                # NIRISS specific: Filter is in PUPIL wheel
+                filt = pupil_key.lower()
+            else:
+                filt = filt_key.lower()
+
             return instr, aper, filt
     except Exception as e:
         print(f"Warning: Could not read header from {files[0]}: {e}")
@@ -163,7 +175,7 @@ def plot_stability(data_cube, robust_mean, output_dir, label):
 
 def write_master_file(mean_data, meta_data, header, output_path):
     """
-    Writes the master file with fixed siaf_index formatting (01, 02...).
+    Writes the master file with strict column alignment.
     """
     print(f"Writing Master Solution to {output_path}...")
 
@@ -173,27 +185,49 @@ def write_master_file(mean_data, meta_data, header, output_path):
         f.write(f"# Sigma-clipped mean of {len(meta_data)} coefficients\n")
         f.write("#\n")
 
-        # Write Header
-        header_str = " , ".join(header)
+        # Define Fixed Column Widths
+        w_aper = 10
+        w_idx = 10
+        w_exp = 10
+        w_val = 23
+
+        # 1. Write Header (Aligned)
+        # Columns: AperName, siaf_index, exponent_x, exponent_y, Sci2IdlX, Sci2IdlY, Idl2SciX, Idl2SciY
+        h_labels = [
+            "AperName",
+            "siaf_index",
+            "exponent_x",
+            "exponent_y",
+            "Sci2IdlX",
+            "Sci2IdlY",
+            "Idl2SciX",
+            "Idl2SciY",
+        ]
+
+        header_str = (
+            f"{h_labels[0]:>{w_aper}} , {h_labels[1]:>{w_idx}} , {h_labels[2]:>{w_exp}} , {h_labels[3]:>{w_exp}} , "
+            f"{h_labels[4]:>{w_val}} , {h_labels[5]:>{w_val}} , {h_labels[6]:>{w_val}} , {h_labels[7]:>{w_val}}"
+        )
         f.write(f"{header_str}\n")
 
+        # 2. Write Data (Aligned)
         for i, row_meta in enumerate(meta_data):
             # meta: [Aper, idx, ex, ey]
-            aper = row_meta[0]
+            aper = str(row_meta[0])
 
             # Ensure siaf_index is 2 digits with leading zero
             try:
                 siaf_idx = f"{int(row_meta[1]):02d}"
             except:
-                siaf_idx = str(row_meta[1])  # Fallback if not integer-like
+                siaf_idx = str(row_meta[1])
 
-            ex = row_meta[2]
-            ey = row_meta[3]
+            ex = str(row_meta[2])
+            ey = str(row_meta[3])
 
             line = (
-                f" {aper:7s} , {siaf_idx:<3s} , {str(ex):>10s} , {str(ey):>10s} , "
-                f"{mean_data[i, 0]:23.12e} , {mean_data[i, 1]:23.12e} , "
-                f"{mean_data[i, 2]:23.12e} , {mean_data[i, 3]:23.12e}\n"
+                f"{aper:>{w_aper}} , {siaf_idx:>{w_idx}} , {ex:>{w_exp}} , {ey:>{w_exp}} , "
+                f"{mean_data[i, 0]:{w_val}.12e} , {mean_data[i, 1]:{w_val}.12e} , "
+                f"{mean_data[i, 2]:{w_val}.12e} , {mean_data[i, 3]:{w_val}.12e}\n"
             )
             f.write(line)
 
@@ -229,6 +263,7 @@ def main():
 
     # 2. Determine Master Filename
     instr, aper, filt = get_metadata_from_fits(args.data_dir)
+    print(f"Detected Metadata: Instrument={instr}, Aperture={aper}, Filter={filt}")
 
     if "fgs" in instr:
         # FGS Format: fgs_siaf_distortion_<aper>.txt
