@@ -140,12 +140,21 @@ class PolynomialDistortion:
         dy = y_flat - y_std
         px, _ = self.fit_robust(x_idl, y_idl, dx, scale=scale, sigma=10.0, max_iters=2)
         py, _ = self.fit_robust(x_idl, y_idl, dy, scale=scale, sigma=10.0, max_iters=2)
-        L_inv_x = np.array([Tx, A, -B])
-        L_inv_y = np.array([Ty, B, A])
-        inv_coeffs_x = self.combine_linear_and_poly(L_inv_x, px, py)
-        inv_coeffs_y = self.combine_linear_and_poly(L_inv_y, px, py)
+
+        inv_coeffs_x = px.copy()
+        inv_coeffs_x[0] += Tx
+        inv_coeffs_x[1] += A
+        inv_coeffs_x[2] -= B
+
+        inv_coeffs_y = py.copy()
+        inv_coeffs_y[0] += Ty
+        inv_coeffs_y[1] += B
+        inv_coeffs_y[2] += A
+
+        # Force origin intercept to 0.0 per standard SIAF conventions
         inv_coeffs_x[0] = 0.0
         inv_coeffs_y[0] = 0.0
+
         return inv_coeffs_x, inv_coeffs_y
 
 
