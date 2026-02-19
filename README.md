@@ -28,8 +28,12 @@ This package provides a robust, iterative polynomial distortion calibration tool
 
 ### 1. Data Preparation
 * Place your FITS images (e.g., `*_cal.fits`) in a base data directory.
-* Ensure you have corresponding source catalogs (`.xymq` files) in the same directory.
-    * *Note: If `.xymq` files are missing, the pipeline can optionally fall back to `photutils` (if enabled) and will automatically cache the results into `.xymq` format.*
+* Ensure you have corresponding source catalogs (`.xymq` files) in the same directory. There are two ways to generate these:
+    1. **`jwst1pass`**: Run the `jwst1pass` routine (found [here](https://www.stsci.edu/~jayander/JWST1PASS/CODE/)) on your FITS files to generate the catalogs.
+    2. **Standalone Photometry Script**: Use the included script to extract sources and generate `.xymq` files via `photutils`. The script will automatically detect the instrument from the FITS headers:
+       ```bash
+       python -m calibration.distortion_photometry /path/to/fits/dir
+       ```
 * Place your reference catalog (FITS format with RA/Dec) in a known path.
 
 ### 2. Run Calibration (Batch Processing)

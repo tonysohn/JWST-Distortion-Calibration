@@ -37,7 +37,6 @@ class PipelineConfig:
     obs_q_min: float = 0.001
     obs_q_max: float = 0.3
     obs_snr_min: float = 40.0
-    source_extraction_method: str = "xymq"
     ref_apply_pm: bool = True
     ref_epoch: float = 2026.0
     ref_mag_buffer: float = 5.0
@@ -86,7 +85,6 @@ class DistortionPipeline:
             fits_file,
             q_max=self.config.obs_q_max,
             snr_min=self.config.obs_snr_min,
-            source_method=self.config.source_extraction_method,
         )
 
         # Read image dimensions

@@ -21,35 +21,34 @@ from .distortion_pipeline import DistortionPipeline, PipelineConfig
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-DATA_DIR = "/Users/tsohn/JWST/FGS/6608"  # Input directory for FITS/XYMQ files
+DATA_DIR = "/Users/tsohn/JWST/NIRISS/9282"  # Input directory for FITS/XYMQ files
 
 # List of subdirectories (e.g., filters) to batch process.
 # Leave as an empty list [] to process DATA_DIR directly.
 
 # Use below for NIRISS
-# BATCH_SUBDIRS = [
-#    "F090W",
-#    "F115W",
-#    "F140M",
-#    "F150W",
-#    "F158M",
-#    "F200W",
-#    "F277W",
-#    "F356W",
-#    "F380M",
-#    "F430M",
-#    "F444W",
-#    "F480M",
-# ]
+BATCH_SUBDIRS = [
+    "F090W",
+    "F115W",
+    "F140M",
+    "F150W",
+    "F158M",
+    "F200W",
+    "F277W",
+    "F356W",
+    "F380M",
+    "F430M",
+    "F444W",
+    "F480M",
+]
 
 # Use below for FGS
-BATCH_SUBDIRS = ["FGS1", "FGS2"]
+# BATCH_SUBDIRS = ["FGS1", "FGS2"]
 
 REF_FILE = "/Users/tsohn/JWST/NIRISS/JWST-Distortion-Calibration/calibration/lmc_calibration_field_hst_2017p38_jwstmags.fits"  # Reference catalog (GAIA/HST)
 OUTPUT_DIR = os.path.join(DATA_DIR, "calibration")  # Output directory
 
 # Processing Parameters
-SOURCE_METHOD = "xymq"
 OBS_Q_MIN = 0.001
 OBS_Q_MAX = 0.3
 OBS_SNR_MIN = 60.0
@@ -111,7 +110,6 @@ def process_single_file(fits_file, output_dir):
         instrument=detected_instr,
         aperture_name=detected_aper,
         poly_degree=poly_degree,
-        source_extraction_method=SOURCE_METHOD,
         obs_q_min=OBS_Q_MIN,
         obs_q_max=OBS_Q_MAX,
         obs_snr_min=OBS_SNR_MIN,

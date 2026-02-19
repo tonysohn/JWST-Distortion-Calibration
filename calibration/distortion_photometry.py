@@ -172,3 +172,56 @@ def measure_sources_photutils(
         print(f"    Diagnostic plot saved: {plot_path}")
 
     return catalog
+
+
+def save_xymq_file(catalog: Table, filename: str):
+    """Save catalog to XYMQ format (x y m q)."""
+    with open(filename, "w") as f:
+        f.write("# x y m q\n")
+        for row in catalog:
+            f.write(f"{row['x']:.3f}  {row['y']:.3f}  {row['m']:.4f}  {row['q']:.3f}\n")
+    print(f"    Saved XYMQ to: {filename}")
+
+
+if __name__ == "__main__":
+    import argparse
+    import glob
+
+    from astropy.io import fits
+
+    parser = argparse.ArgumentParser(
+        description="Run source extraction on a directory of FITS files."
+    )
+    parser.add_argument(
+        "data_dir", type=str, help="Directory containing FITS files to process."
+    )
+    args = parser.parse_args()
+
+    search_pattern = os.path.join(args.data_dir, "*.fits")
+    fits_files = sorted(glob.glob(search_pattern))
+
+    if not fits_files:
+        print(f"No FITS files found in {args.data_dir}")
+    else:
+        print(f"Found {len(fits_files)} FITS files to process in {args.data_dir}.")
+        for f in fits_files:
+            try:
+                # Automatically determine instrument from the FITS header
+                with fits.open(f) as hdul:
+                    detected_inst = (
+                        hdul[0].header.get("INSTRUME", "FGS").strip().upper()
+                    )
+
+                print(f"  Detected Instrument: {detected_inst}")
+
+                # Run the extraction
+                catalog = measure_sources_photutils(
+                    f, instrument=detected_inst, save_plot=True
+                )
+
+                # Save the results to an .xymq file
+                if len(catalog) > 0:
+                    out_file = f.replace(".fits", ".xymq")
+                    save_xymq_file(catalog, out_file)
+            except Exception as e:
+                print(f"Error processing {f}: {e}")

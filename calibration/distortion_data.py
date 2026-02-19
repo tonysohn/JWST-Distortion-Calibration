@@ -15,12 +15,6 @@ from astropy.table import Table
 from astropy.wcs import WCS
 from scipy.spatial import cKDTree
 
-# Import new photometry module
-try:
-    from distortion_photometry import measure_sources_photutils
-except ImportError:
-    measure_sources_photutils = None
-
 
 def load_xymq_file(xymq_file: str) -> Table:
     """Load XYMQ catalog from file."""
@@ -75,49 +69,19 @@ def compute_isolation(catalog):
 
 
 def prepare_obs_catalog(
-    xymq_file: Optional[str],
+    xymq_file: str,
     fits_file: str,
     q_min: float = 0.001,
     q_max: float = 0.3,
     snr_min: float = 40.0,
     photmjsr: Optional[float] = None,
     sort_by_magnitude: bool = True,
-    source_method: str = "xymq",
 ) -> Table:
-    """
-    Prepare observed catalog with caching support for photutils.
-    """
+    """Prepare observed catalog strictly from pre-existing .xymq files."""
 
     # 1. Load Catalog
-    if source_method == "photutils":
-        # Define cache filename based on FITS file
-        cache_file = fits_file.replace(".fits", ".xymq")
-
-        if os.path.exists(cache_file):
-            print(f"Loading cached catalog: {cache_file}")
-            catalog = load_xymq_file(cache_file)
-        else:
-            print(f"Running source extraction (Method: PHOTUTILS)...")
-            if not measure_sources_photutils:
-                raise ImportError("distortion_photometry module not found.")
-
-            # Determine instrument
-            with fits.open(fits_file) as hdul:
-                inst = hdul[0].header.get("INSTRUME", "FGS")
-
-            # Run extraction
-            # This will also save the diagnostic plot if save_plot=True
-            catalog = measure_sources_photutils(
-                fits_file, instrument=inst, save_plot=True
-            )
-
-            # Save cache
-            if len(catalog) > 0:
-                save_xymq_file(catalog, cache_file)
-
-    else:
-        print(f"Loading observed catalog: {xymq_file}")
-        catalog = load_xymq_file(xymq_file)
+    print(f"Loading observed catalog: {xymq_file}")
+    catalog = load_xymq_file(xymq_file)
 
     # 2. Check FITS file
     if not os.path.exists(fits_file):
@@ -153,10 +117,6 @@ def prepare_obs_catalog(
 
     # 5. Filter
     mask = (catalog["q"] > q_min) & (catalog["q"] < q_max) & (snr > snr_min)
-
-    print(f"  Total sources: {len(catalog)}")
-    print(f"  After filters (q, snr): {np.sum(mask)}")
-
     catalog = catalog[mask]
     flux = flux[mask]
     snr = snr[mask]
@@ -181,17 +141,14 @@ def prepare_obs_catalog(
     )
 
     # 8. Metadata
-    obs_catalog.meta["xymq_file"] = xymq_file if xymq_file else "N/A"
+    obs_catalog.meta["xymq_file"] = xymq_file
     obs_catalog.meta["fits_file"] = fits_file
     obs_catalog.meta["instrument"] = instname
     obs_catalog.meta["apername"] = apername
     obs_catalog.meta["filter"] = filtname
-    obs_catalog.meta["source_method"] = source_method
 
-    # 9. Isolation
+    # 9. Isolation & Sort
     obs_catalog["isolation"] = compute_isolation(obs_catalog)
-
-    # 10. Sort
     if sort_by_magnitude:
         obs_catalog = obs_catalog[np.argsort(obs_catalog["mag_ab"])]
 
