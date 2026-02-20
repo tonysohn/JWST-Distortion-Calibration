@@ -111,6 +111,9 @@ def prepare_obs_catalog(
             photmjsr = header1.get("PHOTMJSR", 1.0)
         pixar_sr = header1.get("PIXAR_SR", 1.1e-13)
 
+        # JWST pipeline can put this in either extension depending on the exact processing level
+        va_scale = header1.get("VA_SCALE", header0.get("VA_SCALE", 1.0))
+
     # 4. Compute Flux/SNR/AB
     flux, snr = compute_flux_and_snr(catalog["m"], exptime, photmjsr)
     mag_ab = instrumental_to_ab_magnitude(catalog["m"], pixar_sr)
@@ -146,6 +149,7 @@ def prepare_obs_catalog(
     obs_catalog.meta["instrument"] = instname
     obs_catalog.meta["apername"] = apername
     obs_catalog.meta["filter"] = filtname
+    obs_catalog.meta["va_scale"] = va_scale
 
     # 9. Isolation & Sort
     obs_catalog["isolation"] = compute_isolation(obs_catalog)

@@ -21,31 +21,31 @@ from .distortion_pipeline import DistortionPipeline, PipelineConfig
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-DATA_DIR = "/Users/tsohn/JWST/NIRISS/9282"  # Input directory for FITS/XYMQ files
+DATA_DIR = "/Users/tsohn/JWST/NIRISS/9282/F150W"  # Input directory for FITS/XYMQ files
 
 # List of subdirectories (e.g., filters) to batch process.
 # Leave as an empty list [] to process DATA_DIR directly.
 
 # Use below for NIRISS
-BATCH_SUBDIRS = [
-    "F090W",
-    "F115W",
-    "F140M",
-    "F150W",
-    "F158M",
-    "F200W",
-    "F277W",
-    "F356W",
-    "F380M",
-    "F430M",
-    "F444W",
-    "F480M",
-]
+BATCH_SUBDIRS = []
+#    "F090W",
+#    "F115W",
+#    "F140M",
+#    "F150W",
+#    "F158M",
+#    "F200W",
+#    "F277W",
+#    "F356W",
+#    "F380M",
+#    "F430M",
+#    "F444W",
+#    "F480M",
+# ]
 
 # Use below for FGS
 # BATCH_SUBDIRS = ["FGS1", "FGS2"]
 
-REF_FILE = "/Users/tsohn/JWST/NIRISS/JWST-Distortion-Calibration/calibration/lmc_calibration_field_hst_2017p38_jwstmags.fits"  # Reference catalog (GAIA/HST)
+REF_FILE = "/Users/tsohn/JWST/JWST-Distortion-Calibration/calibration/lmc_calibration_field_hst_2017p38_jwstmags.fits"  # Reference catalog (GAIA/HST)
 OUTPUT_DIR = os.path.join(DATA_DIR, "calibration")  # Output directory
 
 # Processing Parameters

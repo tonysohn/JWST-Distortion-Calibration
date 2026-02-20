@@ -257,8 +257,10 @@ class DistortionPipeline:
             att, self.ref_catalog["ra"], self.ref_catalog["dec"]
         )
         x, y = self.aperture.tel_to_idl(v2, v3)
-        self.ref_catalog["x_idl"] = x
-        self.ref_catalog["y_idl"] = y
+
+        va_scale = self.obs_catalog.meta.get("va_scale", 1.0)
+        self.ref_catalog["x_idl"] = x / va_scale
+        self.ref_catalog["y_idl"] = y / va_scale
 
     def apply_results_to_aperture(self, results):
         """Updates the in-memory SIAF aperture with new coefficients."""
