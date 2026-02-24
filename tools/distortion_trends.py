@@ -10,38 +10,48 @@ from astropy.io import ascii
 
 def extract_metadata_and_metrics(file_path):
     """Extracts metrics, filter, and date from a master coefficient file."""
-    # 1. Parse filename to extract filter and date
     basename = os.path.basename(file_path).replace(".txt", "")
     parts = basename.split("_")
 
     try:
         date_str = parts[-1]
-        filt = parts[-2].upper()
         obs_date = datetime.strptime(date_str, "%Y%m%d")
+
+        if "fgs" in parts[0].lower():
+            # e.g., fgs_siaf_distortion_fgs1_full_20230912
+            # Joins everything between 'distortion' and the date
+            label = "_".join(parts[3:-1]).upper()  # Results in 'FGS1_FULL'
+        else:
+            # e.g., niriss_siaf_distortion_nis_cen_f090w_20230806
+            label = parts[-2].upper()  # Results in 'F090W'
+
     except (IndexError, ValueError) as e:
         print(f"Skipping {basename}: Could not parse date/filter from filename.")
         return None
 
-    # 2. Calculate Physical Metrics
     data = ascii.read(file_path, format="csv", comment="#")
 
     c10_x, c10_y = data[1]["Sci2IdlX"], data[1]["Sci2IdlY"]
     c01_x, c01_y = data[2]["Sci2IdlX"], data[2]["Sci2IdlY"]
 
+    # Calculate independent pixel scales for X and Y axes
     scale_x = np.sqrt(c10_x**2 + c10_y**2)
     scale_y = np.sqrt(c01_x**2 + c01_y**2)
-    rotation = np.degrees(np.arctan2(c10_y, c10_x))
-    skew = np.degrees(np.arctan2(-c01_x, c01_y)) - rotation
+
+    rotation_deg = np.degrees(np.arctan2(c10_y, c10_x))
+    skew_deg = np.degrees(np.arctan2(-c01_x, c01_y)) - rotation_deg
+
     ho_power = np.sqrt(np.sum(data[3:]["Sci2IdlX"] ** 2 + data[3:]["Sci2IdlY"] ** 2))
 
     return {
         "date": obs_date,
-        "label": filt,
-        # Convert arcsec to milliarcsec (mas)
-        "scale": ((scale_x + scale_y) / 2.0) * 1000.0,
-        "rotation": rotation,
-        "skew": skew,
-        # Convert arcsec to microarcsec (uas)
+        "label": label,
+        # Convert scales from arcsec to milliarcsec (mas)
+        "scale_x": scale_x * 1000.0,
+        "scale_y": scale_y * 1000.0,
+        # Convert skew from degrees to arcsec
+        "skew": skew_deg * 3600.0,
+        # Convert Higher-Order RMS from arcsec to microarcsec (uas)
         "ho_strength": ho_power * 1e6,
     }
 
@@ -50,7 +60,6 @@ def write_trend_summary(group_name, metrics_list, output_dir):
     """Generates an ASCII summary table with percent changes."""
     out_name = os.path.join(output_dir, f"trends_{group_name.lower()}_summary.txt")
 
-    # Reference metrics are the first chronological epoch
     ref = metrics_list[0]
 
     def calc_pct_change(val, ref_val):
@@ -60,24 +69,21 @@ def write_trend_summary(group_name, metrics_list, output_dir):
 
     with open(out_name, "w") as f:
         f.write(f"Distortion Stability Summary: {group_name}\n")
-        f.write("=" * 115 + "\n")
+        f.write("=" * 125 + "\n")
 
         headers = (
-            f"{'Date':<12} | {'Scale (mas)':<12} | {'Scale %Chg':<10} | "
-            f"{'Rot (deg)':<12} | {'Rot %Chg':<10} | {'Skew (deg)':<12} | "
+            f"{'Date':<12} | {'Scale X (mas)':<13} | {'X %Chg':<10} | "
+            f"{'Scale Y (mas)':<13} | {'Y %Chg':<10} | {'Skew (arcsec)':<14} | "
             f"{'Skew %Chg':<10} | {'HO RMS (uas)':<12} | {'HO %Chg':<10}"
         )
         f.write(headers + "\n")
-        f.write("-" * 115 + "\n")
+        f.write("-" * 125 + "\n")
 
         for m in metrics_list:
             date_str = m["date"].strftime("%Y-%m-%d")
 
-            s_val, s_pct = m["scale"], calc_pct_change(m["scale"], ref["scale"])
-            r_val, r_pct = (
-                m["rotation"],
-                calc_pct_change(m["rotation"], ref["rotation"]),
-            )
+            sx_val, sx_pct = m["scale_x"], calc_pct_change(m["scale_x"], ref["scale_x"])
+            sy_val, sy_pct = m["scale_y"], calc_pct_change(m["scale_y"], ref["scale_y"])
             k_val, k_pct = m["skew"], calc_pct_change(m["skew"], ref["skew"])
             h_val, h_pct = (
                 m["ho_strength"],
@@ -85,8 +91,8 @@ def write_trend_summary(group_name, metrics_list, output_dir):
             )
 
             line = (
-                f"{date_str:<12} | {s_val:<12.5f} | {s_pct:>9.4f}% | "
-                f"{r_val:<12.6f} | {r_pct:>8.4f}% | {k_val:<12.6f} | "
+                f"{date_str:<12} | {sx_val:<13.5f} | {sx_pct:>9.4f}% | "
+                f"{sy_val:<13.5f} | {sy_pct:>9.4f}% | {k_val:<14.4f} | "
                 f"{k_pct:>8.4f}% | {h_val:<12.3f} | {h_pct:>8.4f}%"
             )
             f.write(line + "\n")
@@ -96,11 +102,9 @@ def write_trend_summary(group_name, metrics_list, output_dir):
 
 def plot_group_trends(group_name, metrics_list, output_dir):
     """Generates a trend plot for a specific instrument/filter group."""
-    # Sort chronologically by datetime object
     metrics_list = sorted(metrics_list, key=lambda x: x["date"])
     dates = [m["date"] for m in metrics_list]
 
-    # Write the text summary before plotting
     write_trend_summary(group_name, metrics_list, output_dir)
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -108,38 +112,62 @@ def plot_group_trends(group_name, metrics_list, output_dir):
         f"Distortion Stability Trends: {group_name}", fontsize=16, fontweight="bold"
     )
 
-    def plot_sub(ax, key, title, ylabel, color):
-        vals = [m[key] for m in metrics_list]
+    def plot_sub(ax, key, title, ylabel, color, center_zero=False):
+        vals = np.array([m[key] for m in metrics_list])
 
-        # Plot with markers
+        if center_zero:
+            mean_val = np.mean(vals)
+            vals = vals - mean_val
+            title = f"{title}\n(Zero Point: {mean_val:.3f} arcsec)"
+
         ax.plot(dates, vals, "o-", color=color, lw=2, markersize=8)
         ax.set_title(title)
         ax.set_ylabel(ylabel)
         ax.grid(True, alpha=0.3)
 
-        # Formatting Y-axis: Force plain numbers
         ax.ticklabel_format(useOffset=False, style="plain", axis="y")
 
-        # Formatting X-axis as Dates
         ax.xaxis.set_major_locator(mdates.AutoDateLocator())
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha="right")
 
-    # Updated labels to reflect milliarcseconds and microarcseconds
-    plot_sub(axes[0, 0], "scale", "Average Pixel Scale", "mas/pix", "royalblue")
-    plot_sub(axes[0, 1], "rotation", "Detector Rotation", "degrees", "forestgreen")
-    plot_sub(axes[1, 0], "skew", "Pixel Skew", "degrees", "crimson")
+    # Panel 1: Pixel Scale X
+    plot_sub(
+        axes[0, 0],
+        "scale_x",
+        "Pixel Scale X",
+        "mas/pix",
+        "royalblue",
+        center_zero=False,
+    )
+
+    # Panel 2: Pixel Scale Y
+    plot_sub(
+        axes[0, 1],
+        "scale_y",
+        "Pixel Scale Y",
+        "mas/pix",
+        "forestgreen",
+        center_zero=False,
+    )
+
+    # Panel 3: Pixel Skew (centered at zero)
+    plot_sub(
+        axes[1, 0], "skew", "Pixel Skew", "+/- arcsec", "crimson", center_zero=True
+    )
+
+    # Panel 4: Higher-Order Distortion Power
     plot_sub(
         axes[1, 1],
         "ho_strength",
         "Higher-Order Distortion Power",
         r"RMS ($\mu$as)",
         "purple",
+        center_zero=False,
     )
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
-    # Save to the same directory
     out_name = os.path.join(output_dir, f"trends_{group_name.lower()}.png")
     plt.savefig(out_name, dpi=150, bbox_inches="tight")
     print(f"  -> Generated trend plot: {os.path.basename(out_name)}")

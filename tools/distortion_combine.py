@@ -16,16 +16,20 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
+import yaml
 from astropy.io import ascii, fits
 from astropy.stats import sigma_clip
 
-# --- IMPORT CONFIGURATION FROM RUN_CALIBRATION ---
+CONFIG_FILE = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "config.yml")
+)
 try:
-    from . import run_calibration
-
-    DEFAULT_DATA_DIR = run_calibration.DATA_DIR
-    BATCH_SUBDIRS = getattr(run_calibration, "BATCH_SUBDIRS", [])
-except ImportError:
+    with open(CONFIG_FILE, "r") as f:
+        cfg = yaml.safe_load(f)
+    DEFAULT_DATA_DIR = cfg["paths"]["data_dir"]
+    BATCH_SUBDIRS = cfg["batch"]["subdirs"] if cfg["batch"]["subdirs"] else [""]
+except Exception as e:
+    print(f"Warning: Could not load config.yaml. Using defaults. ({e})")
     DEFAULT_DATA_DIR = "./data"
     BATCH_SUBDIRS = []
 

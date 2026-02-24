@@ -12,57 +12,43 @@ Dependencies:
 
 import glob
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
+import yaml
 from astropy.io import fits
 from astropy.table import Table
 from astropy.time import Time
 
-from .distortion_pipeline import DistortionPipeline, PipelineConfig
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from calibration.distortion_pipeline import DistortionPipeline, PipelineConfig
 
 # =============================================================================
-# CONFIGURATION
+# LOAD CONFIGURATION
 # =============================================================================
-DATA_DIR = (
-    "/Users/tsohn/JWST/NIRISS/DISTORTION/9282"  # Input directory for FITS/XYMQ files
+# Look for config.yaml one directory level up (in the repository root)
+CONFIG_FILE = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "config.yml")
 )
 
-# List of subdirectories (e.g., filters) to batch process.
-# Leave as an empty list [] to process DATA_DIR directly.
+with open(CONFIG_FILE, "r") as f:
+    cfg = yaml.safe_load(f)
 
-# Use below for NIRISS
-BATCH_SUBDIRS = [
-    "F090W",
-    "F115W",
-    "F140M",
-    "F150W",
-    "F158M",
-    "F200W",
-    "F277W",
-    "F356W",
-    "F380M",
-    "F430M",
-    "F444W",
-    "F480M",
-]
-
-# Use below for FGS
-# BATCH_SUBDIRS = ["FGS1", "FGS2"]
-
-REF_FILE = "/Users/tsohn/JWST/JWST-Distortion-Calibration/calibration/lmc_calibration_field_hst_2017p38_jwstmags.fits"  # Reference catalog (GAIA/HST)
-OUTPUT_DIR = os.path.join(DATA_DIR, "calibration")  # Output directory
+DATA_DIR = cfg["paths"]["data_dir"]
+REF_FILE = cfg["paths"]["ref_file"]
+BATCH_SUBDIRS = cfg["batch"]["subdirs"] if cfg["batch"]["subdirs"] else [""]
 
 # Processing Parameters
-OBS_Q_MIN = 0.001
-OBS_Q_MAX = 0.3
-OBS_SNR_MIN = 60.0
-N_BRIGHT_OBS = 400
-POS_TOLERANCE = 0.1
-INITIAL_TOLERANCE = 0.5
-REF_APPLY_PM = True
-USE_GRID_FITTING = True
-GRID_SIZE = 20
+OBS_Q_MIN = cfg["processing"]["obs_q_min"]
+OBS_Q_MAX = cfg["processing"]["obs_q_max"]
+OBS_SNR_MIN = cfg["processing"]["obs_snr_min"]
+N_BRIGHT_OBS = cfg["processing"]["n_bright_obs"]
+POS_TOLERANCE = cfg["processing"]["pos_tolerance"]
+INITIAL_TOLERANCE = cfg["processing"]["initial_tolerance"]
+REF_APPLY_PM = cfg["processing"]["ref_apply_pm"]
+USE_GRID_FITTING = cfg["processing"]["use_grid_fitting"]
+GRID_SIZE = cfg["processing"]["grid_size"]
 # =============================================================================
 
 
