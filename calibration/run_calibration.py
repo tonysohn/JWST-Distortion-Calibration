@@ -14,36 +14,39 @@ import glob
 import os
 from pathlib import Path
 
+import numpy as np
 from astropy.io import fits
+from astropy.table import Table
+from astropy.time import Time
 
 from .distortion_pipeline import DistortionPipeline, PipelineConfig
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-DATA_DIR = "/Users/tsohn/JWST/FGS/DISTORTION/4495/EP1-202309"  # Input directory for FITS/XYMQ files
+DATA_DIR = "/Users/tsohn/JWST/NIRISS/DISTORTION/1501/EP1"  # Input directory for FITS/XYMQ files
 
 # List of subdirectories (e.g., filters) to batch process.
 # Leave as an empty list [] to process DATA_DIR directly.
 
 # Use below for NIRISS
-#BATCH_SUBDIRS = []
-#    "F090W",
-#    "F115W",
-#    "F140M",
-#    "F150W",
-#    "F158M",
-#    "F200W",
-#    "F277W",
-#    "F356W",
-#    "F380M",
-#    "F430M",
-#    "F444W",
-#    "F480M",
-# ]
+BATCH_SUBDIRS = [
+    "F090W",
+    "F115W",
+    "F140M",
+    "F150W",
+    "F158M",
+    "F200W",
+    "F277W",
+    "F356W",
+    "F380M",
+    "F430M",
+    "F444W",
+    "F480M",
+]
 
 # Use below for FGS
-BATCH_SUBDIRS = ["FGS1", "FGS2"]
+# BATCH_SUBDIRS = ["FGS1", "FGS2"]
 
 REF_FILE = "/Users/tsohn/JWST/JWST-Distortion-Calibration/calibration/lmc_calibration_field_hst_2017p38_jwstmags.fits"  # Reference catalog (GAIA/HST)
 OUTPUT_DIR = os.path.join(DATA_DIR, "calibration")  # Output directory
@@ -56,7 +59,6 @@ N_BRIGHT_OBS = 400
 POS_TOLERANCE = 0.1
 INITIAL_TOLERANCE = 0.5
 REF_APPLY_PM = True
-REF_EPOCH = 2026.0
 USE_GRID_FITTING = True
 GRID_SIZE = 20
 # =============================================================================
@@ -69,13 +71,14 @@ def get_config_from_header(fits_path):
             header = hdul[0].header
             instr = header.get("INSTRUME", "").strip().upper()
             aper = header.get("APERNAME", header.get("PPS_APER", "")).strip()
-            return instr, aper
+            date = header.get("DATE-OBS")
+            return instr, aper, date
     except Exception as e:
         print(f"Error reading FITS header: {e}")
-        return None, None
+        return None, None, None
 
 
-def process_single_file(fits_file, output_dir):
+def process_single_file(fits_file, output_dir, master_ref_catalog):
     """Runs calibration for a single image."""
     print(f"\nProcessing: {fits_file}")
 
@@ -83,7 +86,7 @@ def process_single_file(fits_file, output_dir):
         print(f"Error: Ref file not found: {REF_FILE}")
         return
 
-    detected_instr, detected_aper = get_config_from_header(fits_file)
+    detected_instr, detected_aper, date = get_config_from_header(fits_file)
     if not detected_instr:
         print(f"Skipping {fits_file}: Could not read header.")
         return
@@ -96,6 +99,9 @@ def process_single_file(fits_file, output_dir):
     else:
         poly_degree = 5
         print(f"Warning: Unknown instrument {detected_instr}, defaulting to degree 5.")
+
+    # EPOCH OF OBSERVATION (for proper motion correction)
+    REF_EPOCH = Time(date, format="iso").decimalyear if date != "Unknown" else 2025.0
 
     file_root = Path(fits_file).stem
     xymq_file = str(Path(fits_file).with_suffix(".xymq"))
@@ -127,7 +133,7 @@ def process_single_file(fits_file, output_dir):
 
     try:
         pipeline = DistortionPipeline(config)
-        pipeline.prepare_and_load_catalogs(xymq_file, fits_file, REF_FILE)
+        pipeline.prepare_and_load_catalogs(xymq_file, fits_file, master_ref_catalog)
         pipeline.run()
     except Exception as e:
         print(f"FAILED to process {fits_file}: {e}")
@@ -140,6 +146,69 @@ def main():
     # If BATCH_SUBDIRS is populated, process those subdirectories.
     # If it is empty, process DATA_DIR directly.
     subdirs = BATCH_SUBDIRS if BATCH_SUBDIRS else [""]
+
+    # --- NEW: Peek at the first FITS file to determine the global REF_EPOCH ---
+    first_fits = None
+    for subdir in subdirs:
+        search_dir = os.path.join(DATA_DIR, subdir) if subdir else DATA_DIR
+        fits_list = sorted(glob.glob(os.path.join(search_dir, "*.fits")))
+        if fits_list:
+            first_fits = fits_list[0]
+            break
+
+    if not first_fits:
+        print(f"No FITS files found in {DATA_DIR} or its specified subdirectories.")
+        return
+
+    _, _, first_date = get_config_from_header(first_fits)
+    global_ref_epoch = (
+        Time(first_date, format="iso").decimalyear
+        if first_date and first_date != "Unknown"
+        else 2026.0
+    )
+    # -------------------------------------------------------------------------
+
+    print(f"\nLoading master reference catalog into memory from: {REF_FILE}")
+    master_ref_catalog = Table.read(REF_FILE)
+    print(
+        f"Loaded {len(master_ref_catalog)} reference stars. Starting batch processing...\n"
+    )
+
+    global REF_APPLY_PM
+
+    if REF_APPLY_PM:
+        CATALOG_EPOCH = 2017.38
+        dt = global_ref_epoch - CATALOG_EPOCH
+
+        # Fixed the \D escape sequence warning by using a double backslash
+        print(
+            f"Applying proper motions: $\\Delta$t = {dt:.3f} years (to Epoch {global_ref_epoch:.2f})..."
+        )
+
+        # Check if the catalog contains the necessary PM columns
+        if (
+            "pmra" in master_ref_catalog.colnames
+            and "pmdec" in master_ref_catalog.colnames
+        ):
+            # Convert mas/yr to degrees/yr
+            pmra_deg_yr = master_ref_catalog["pmra"] / 3.6e6
+            pmdec_deg_yr = master_ref_catalog["pmdec"] / 3.6e6
+
+            # Apply to coordinates.
+            # Note: Standard Gaia/HST catalogs store 'pmra' as (pm_ra * cos(dec)).
+            # Therefore, we must divide by cos(dec) to get the true RA shift in degrees.
+            cos_dec = np.cos(np.radians(master_ref_catalog["dec_deg"]))
+
+            master_ref_catalog["ra_deg"] += (pmra_deg_yr * dt) / cos_dec
+            master_ref_catalog["dec_deg"] += pmdec_deg_yr * dt
+
+            print("  Proper motion applied successfully.")
+        else:
+            print("  Warning: 'pmra' or 'pmdec' not found. Skipping PM correction.")
+
+        # VERY IMPORTANT: Turn off the flag so distortion_pipeline.py doesn't
+        # try to apply it a second time inside the loop!
+        REF_APPLY_PM = False
 
     found_any_files = False
 
@@ -165,7 +234,7 @@ def main():
         os.makedirs(current_output_dir, exist_ok=True)
 
         for f in fits_files:
-            process_single_file(f, current_output_dir)
+            process_single_file(f, current_output_dir, master_ref_catalog)
 
     if not found_any_files:
         print(f"No FITS files found in {DATA_DIR} or its specified subdirectories.")

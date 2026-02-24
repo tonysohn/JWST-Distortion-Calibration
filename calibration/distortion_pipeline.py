@@ -76,10 +76,13 @@ class DistortionPipeline:
         self.successful_mag_bin = None
         self.naxis1 = 2048  # Default
         self.naxis2 = 2048
+        self.converged = False
+        self.total_iters = 0
+        self.n_matches_initial = 0
 
     def prepare_and_load_catalogs(self, xymq_file, fits_file, ref_file):
         """Loads observed and reference catalogs, extracting header info."""
-        print(f"\n[1] Loading Obs Catalog from {xymq_file}...")
+        # print(f"\n[1] Loading Obs Catalog from {xymq_file}...")
         self.obs_catalog = prepare_obs_catalog(
             xymq_file,
             fits_file,
@@ -91,9 +94,9 @@ class DistortionPipeline:
         with fits.open(fits_file) as hdul:
             self.naxis1 = hdul[1].header.get("NAXIS1", 2048)
             self.naxis2 = hdul[1].header.get("NAXIS2", 2048)
-            print(f"    Detected Image Dimensions: {self.naxis1} x {self.naxis2}")
+            # print(f"    Detected Image Dimensions: {self.naxis1} x {self.naxis2}")
 
-        print(f"\n[2] Loading Ref Catalog from {ref_file}...")
+        # print(f"\n[2] Loading Ref Catalog from {ref_file}...")
         self.ref_catalog = prepare_ref_catalog(
             ref_file,
             self.obs_catalog,
@@ -115,14 +118,20 @@ class DistortionPipeline:
         """Main execution loop for iterative calibration."""
         if self.obs_catalog is None:
             raise ValueError("Load catalogs first.")
-        print(
-            f"\n{'=' * 60}\nSTARTING CALIBRATION: {self.config.file_root} ({self.config.aperture_name})\n{'=' * 60}"
-        )
+
+        assert self.ref_catalog is not None, "Reference catalog failed to load."
+
+        self.converged = False
+        self.total_iters = 0
+
+        print(f"\n{'=' * 60}\nCALIBRATING: {self.config.file_root}\n{'=' * 60}")
+        print("Iterations: ", end="", flush=True)
 
         for i in range(self.config.max_iters):
-            print(f"\n--- Iteration {i + 1}/{self.config.max_iters} ---")
+            self.total_iters = i + 1
+            print(f"{self.total_iters}.. ", end="", flush=True)
 
-            # 1. Update Reference Stars to Ideal Frame (using current SIAF)
+            # 1. Update Reference Stars
             self.update_reference_ideal_coords()
 
             current_tolerance = (
@@ -130,27 +139,18 @@ class DistortionPipeline:
                 if i == 0
                 else self.config.pos_tolerance_arcsec
             )
-            mag_bins = (
-                self.config.ref_mag_bins
-                if i == 0
-                else ([self.successful_mag_bin] if self.successful_mag_bin else None)
-            )
 
             # 2. Matching
             if i == 0:
-                # First pass: Robust pointing determination
                 s1_obs, s1_ref, info1 = match_with_pointing_prior(
                     self.obs_catalog,
                     self.ref_catalog,
                     n_bright_obs=self.config.n_bright_obs,
-                    ref_mag_bins=mag_bins,
                     pos_tolerance_arcsec=0.5,
                     verbose=False,
                 )
-                if "mag_bin" in info1:
-                    self.successful_mag_bin = info1["mag_bin"]
+                self.n_matches_initial = info1.get("n_matches", 0)
 
-                # Apply initial offset
                 x_idl_all, y_idl_all = self.project_to_ideal(self.obs_catalog)
                 x_idl_s1, y_idl_s1 = self.project_to_ideal(s1_obs)
                 dx = np.median(s1_ref["x_idl"] - x_idl_s1)
@@ -158,41 +158,49 @@ class DistortionPipeline:
                 x_idl_aligned = x_idl_all + dx
                 y_idl_aligned = y_idl_all + dy
             else:
-                # Subsequent passes: Use current polynomial projection
                 x_idl_aligned, y_idl_aligned = self.project_to_ideal(self.obs_catalog)
 
-            obs_matched, ref_matched, info2 = match_in_ideal_frame(
+            obs_matched, ref_matched, _ = match_in_ideal_frame(
                 self.obs_catalog,
                 self.ref_catalog,
                 x_idl_obs=x_idl_aligned,
                 y_idl_obs=y_idl_aligned,
                 pos_tolerance_arcsec=current_tolerance,
+                verbose=False,
             )
 
             if len(obs_matched) < 50:
-                print("Too few matches. Aborting.")
+                print("Failed (Too few matches).")
                 break
 
-            # 3. Fit Distortion Polynomials
+            # 3. Fit
             results = self.fit_distortion(obs_matched, ref_matched)
-
-            # Store results
             self.prior_coeffs = results
             self.current_results = results
+
             self.history["rms_x"].append(results["rms_x"])
             self.history["rms_y"].append(results["rms_y"])
             self.history["n_stars"].append(results["n_stars"])
 
-            print(
-                f"  Fit Results: RMS X={results['rms_x']:.3f}, Y={results['rms_y']:.3f} mas, N={results['n_stars']}"
-            )
-
             if self.check_convergence():
-                print("\nCONVERGENCE ACHIEVED")
+                self.converged = True
                 break
 
-            # Update SIAF object in memory for next iteration
             self.apply_results_to_aperture(results)
+
+        # Final Notification & Stats Output
+        print("Done.")
+        if self.converged:
+            print(f"  >>> Convergence achieved in {self.total_iters} iterations.")
+        else:
+            print(
+                f"  >>> Finished: Maximum iterations ({self.config.max_iters}) reached."
+            )
+
+        res = self.current_results
+        print(
+            f"  >>> Final RMS: X={res['rms_x']:.3f}, Y={res['rms_y']:.3f} mas (N={res['n_stars']})"
+        )
 
         self.finalize()
 
@@ -201,12 +209,10 @@ class DistortionPipeline:
         x_sci = catalog["x_SCI"] - self.aperture.XSciRef
         y_sci = catalog["y_SCI"] - self.aperture.YSciRef
         if self.prior_coeffs is None:
-            # Use static SIAF initially
             x_raw = catalog["x_SCI"]
             y_raw = catalog["y_SCI"]
             return self.aperture.sci_to_idl(x_raw, y_raw)
         else:
-            # Use evolved coefficients
             cx = self.prior_coeffs.get("Sci2IdlX_Raw", self.prior_coeffs["Sci2IdlX"])
             cy = self.prior_coeffs.get("Sci2IdlY_Raw", self.prior_coeffs["Sci2IdlY"])
             x_idl = self.fitter.poly.evaluate(cx, x_sci, y_sci)
@@ -219,8 +225,6 @@ class DistortionPipeline:
         y_sci = obs["y_SCI"] - self.aperture.YSciRef
         weights = self._calculate_weights(obs)
 
-        # Define detector bounds for normalization
-        # We keep using self.naxis1 here as it helps fitting stability even if plotting is fixed
         x_min = 0 - self.aperture.XSciRef
         x_max = self.naxis1 - self.aperture.XSciRef
         y_min = 0 - self.aperture.YSciRef
@@ -286,29 +290,33 @@ class DistortionPipeline:
         set_coeffs("Idl2SciY", results["Idl2SciY"])
 
     def check_convergence(self):
-        """Checks if RMS is stable between iterations."""
+        """Checks if RMS is stable between iterations and prints debug info."""
         if len(self.history["rms_x"]) < 2:
             return False
+
         dx = abs(self.history["rms_x"][-1] - self.history["rms_x"][-2])
         dy = abs(self.history["rms_y"][-1] - self.history["rms_y"][-2])
+
         return (
             dx < self.config.convergence_tol_mas
             and dy < self.config.convergence_tol_mas
         )
 
     def finalize(self):
-        """Saves final coefficients and generates diagnostic plots."""
+        """Saves final coefficients, summary, and generates diagnostic plots."""
         print(f"\nSaving results to {self.config.working_dir}")
         coeff_filename = (
             f"{self.config.file_root}_{self.config.aperture_name}_distortion_coeffs.txt"
         )
         self.write_siaf_table(os.path.join(self.config.res_dir, coeff_filename))
 
+        # New Summary File
+        summary_filename = f"{self.config.file_root}_summary.txt"
+        self.write_summary_file(os.path.join(self.config.res_dir, summary_filename))
+
         print("Generating Distortion Models for Visualization...")
 
-        # 1. Setup Grid for Plotting
         grid_n = 20
-        # Use simple 2048 grid to match plotting code expectations
         x_edges = np.linspace(0, 2048, grid_n + 1)
         y_edges = np.linspace(0, 2048, grid_n + 1)
         xc = (x_edges[:-1] + x_edges[1:]) / 2.0
@@ -331,6 +339,7 @@ class DistortionPipeline:
             dx_raw = debug_data["dx"]
             dy_raw = debug_data["dy"]
 
+            # POINT 2: Use dynamic degree from config [cite: 193]
             temp_poly = PolynomialDistortion(degree=self.config.poly_degree)
             cx_before, _ = temp_poly.fit_robust(x_raw, y_raw, dx_raw, scale=max_dim)
             cy_before, _ = temp_poly.fit_robust(x_raw, y_raw, dy_raw, scale=max_dim)
@@ -350,17 +359,16 @@ class DistortionPipeline:
         x_clean = self.current_results["x_sci_used"] - xref
         y_clean = self.current_results["y_sci_used"] - yref
 
-        temp_poly = PolynomialDistortion(degree=5)
+        # POINT 2: Use dynamic degree from config [cite: 193]
+        temp_poly = PolynomialDistortion(degree=self.config.poly_degree)
         cx_after, _ = temp_poly.fit_robust(x_clean, y_clean, res_x_pix, scale=max_dim)
         cy_after, _ = temp_poly.fit_robust(x_clean, y_clean, res_y_pix, scale=max_dim)
 
         dx_model_after = temp_poly.evaluate(cx_after, gx_cen, gy_cen)
         dy_model_after = temp_poly.evaluate(cy_after, gx_cen, gy_cen)
 
-        # 4. Generate Plots
         plot_label = f"{self.config.file_root}_{self.config.aperture_name}"
 
-        # Removed 'dims=' argument here to fix the error
         plot_comparison_models(
             gx_flat,
             gy_flat,
@@ -377,8 +385,6 @@ class DistortionPipeline:
         plot_results["y_sci_used"] = self.current_results["y_sci_used"] + yref
 
         plot_residuals(plot_results, self.config.plot_dir, plot_label)
-
-        # Removed 'dims=' argument here as well
         plot_trends(plot_results, self.config.plot_dir, plot_label)
 
     def write_siaf_table(self, filename):
@@ -386,29 +392,85 @@ class DistortionPipeline:
         res = self.current_results
         poly_deg = self.config.poly_degree
 
+        date_obs = self.obs_catalog.meta.get("date_obs", "unknown")
+        filt = self.obs_catalog.meta.get("filter", "unknown")
+        fits_name = os.path.basename(self.obs_catalog.meta.get("fits_file", "unknown"))
+
         with open(filename, "w") as f:
             f.write("# NIRISS distortion coefficient file\n")
-            f.write("#\n")
+            f.write(f"# Source file: {fits_name}\n")
             f.write(f"# Aperture: {self.config.aperture_name}\n")
+            f.write(f"# Filter/Pupil: {filt}\n")
+            f.write(f"# Observation Date: {date_obs}\n")
             f.write(f"# Generated {datetime.datetime.utcnow().isoformat()} UTC\n")
+            f.write("# by tsohn\n")
             f.write("#\n")
-            f.write(
-                "AperName , siaf_index , exponent_x , exponent_y ,          Sci2IdlX ,          Sci2IdlY ,          Idl2SciX ,          Idl2SciY\n"
+
+            w_aper, w_idx, w_exp, w_val = 10, 10, 10, 23
+            headers = [
+                "AperName",
+                "siaf_index",
+                "exponent_x",
+                "exponent_y",
+                "Sci2IdlX",
+                "Sci2IdlY",
+                "Idl2SciX",
+                "Idl2SciY",
+            ]
+
+            header_line = (
+                f"{headers[0]:>{w_aper}} , {headers[1]:>{w_idx}} , {headers[2]:>{w_exp}} , {headers[3]:>{w_exp}} , "
+                f"{headers[4]:>{w_val}} , {headers[5]:>{w_val}} , {headers[6]:>{w_val}} , {headers[7]:>{w_val}}\n"
             )
+            f.write(header_line)
 
             idx = 0
             for i in range(poly_deg + 1):
                 for j in range(i + 1):
-                    siaf_idx = f"{i - j}{j}"
+                    siaf_idx = f"{i}{j}"  # Correct Degree-Index format
                     exp_x = i - j
                     exp_y = j
+
                     s2i_x = res["Sci2IdlX"][idx]
                     s2i_y = res["Sci2IdlY"][idx]
                     i2s_x = res["Idl2SciX"][idx]
                     i2s_y = res["Idl2SciY"][idx]
+
                     line = (
-                        f" {self.config.aperture_name:7s} ,         {siaf_idx:<2s} ,          {exp_x:1d} ,          {exp_y:1d} , "
+                        f" {self.config.aperture_name:>{w_aper - 1}} ,         {siaf_idx:<2s} ,          {exp_x:1d} ,          {exp_y:1d} , "
                         f"{s2i_x:23.12e} , {s2i_y:23.12e} , {i2s_x:23.12e} , {i2s_y:23.12e}\n"
                     )
                     f.write(line)
                     idx += 1
+
+    def write_summary_file(self, filename):
+        """Writes a concise diagnostic summary to an ASCII file."""
+        meta = self.obs_catalog.meta
+        res = self.current_results
+
+        rms_total = np.sqrt(res["rms_x"] ** 2 + res["rms_y"] ** 2)
+
+        with open(filename, "w") as f:
+            f.write("JWST DISTORTION CALIBRATION SUMMARY\n")
+            f.write("=" * 40 + "\n")
+            f.write(f"File:           {os.path.basename(meta['fits_file'])}\n")
+            f.write(f"Instrument:     {meta['instrument']}\n")
+            f.write(f"Aperture:       {meta['apername']}\n")
+            f.write(f"Filter/Pupil:   {meta['filter']}\n")
+            f.write(f"Obs Date:       {meta.get('date_obs', 'N/A')}\n")
+            f.write("-" * 40 + "\n")
+            f.write(f"VA_SCALE Used:  {meta.get('va_scale', 1.0):.10f}\n")
+            f.write(f"Poly Degree:    {self.config.poly_degree}\n")
+            f.write("-" * 40 + "\n")
+            f.write(f"Iterations:     {self.total_iters}\n")
+            f.write(f"Converged:      {self.converged}\n")
+            f.write("-" * 40 + "\n")
+            f.write(f"Stars in Cat:   {len(self.obs_catalog)}\n")
+            f.write(f"Stars Matched:  {self.n_matches_initial}\n")
+            f.write(f"Stars in Fit:   {res['n_stars']} (after 2D rejection)\n")
+            f.write("-" * 40 + "\n")
+            f.write(f"RMS X (mas):    {res['rms_x']:.3f}\n")
+            f.write(f"RMS Y (mas):    {res['rms_y']:.3f}\n")
+            f.write(f"RMS Total:      {rms_total:.3f}\n")
+            f.write("=" * 40 + "\n")
+        print(f"Summary saved to: {filename}")

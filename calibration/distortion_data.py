@@ -7,13 +7,17 @@ Updates:
 
 import os
 import sys
+import warnings
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from astropy.io import fits
 from astropy.table import Table
-from astropy.wcs import WCS
+from astropy.wcs import WCS, FITSFixedWarning
 from scipy.spatial import cKDTree
+
+# Suppress FITSFixedWarning globally for this module
+warnings.simplefilter("ignore", FITSFixedWarning)
 
 
 def load_xymq_file(xymq_file: str) -> Table:
@@ -93,6 +97,7 @@ def prepare_obs_catalog(
         header1 = hdul[1].header
         instname = header0["INSTRUME"]
         apername = header0["APERNAME"]
+        date_obs = header0.get("DATE-OBS", "Unknown")
 
         if instname.upper() == "NIRISS":
             filtname = (
@@ -150,6 +155,7 @@ def prepare_obs_catalog(
     obs_catalog.meta["apername"] = apername
     obs_catalog.meta["filter"] = filtname
     obs_catalog.meta["va_scale"] = va_scale
+    obs_catalog.meta["date_obs"] = date_obs
 
     # 9. Isolation & Sort
     obs_catalog["isolation"] = compute_isolation(obs_catalog)
@@ -161,7 +167,7 @@ def prepare_obs_catalog(
 
 
 def prepare_ref_catalog(
-    ref_catalog_file: str,
+    ref_input: str,
     obs_catalog: Table,
     mag_column: str = None,
     mag_range: Tuple[float, float] = None,
@@ -170,9 +176,14 @@ def prepare_ref_catalog(
     target_epoch: float = 2026.0,
     buffer_arcsec: float = 30.0,
 ) -> Table:
-    """Prepare reference catalog."""
-    print("\nPreparing reference catalog...")
-    ref_cat = Table.read(ref_catalog_file)
+    # """Prepare reference catalog."""
+    # print("\nPreparing reference catalog...")
+
+    # Check if reference catalog has already loaded as a table
+    if isinstance(ref_input, str):
+        ref_cat = Table.read(ref_input)
+    else:
+        ref_cat = ref_input  # Already loaded in memory
 
     # 1. Column standardization (RA/Dec)
     for col in ref_cat.colnames:
