@@ -24,7 +24,9 @@ from .distortion_pipeline import DistortionPipeline, PipelineConfig
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-DATA_DIR = "/Users/tsohn/JWST/NIRISS/DISTORTION/1501/EP1"  # Input directory for FITS/XYMQ files
+DATA_DIR = (
+    "/Users/tsohn/JWST/NIRISS/DISTORTION/9282"  # Input directory for FITS/XYMQ files
+)
 
 # List of subdirectories (e.g., filters) to batch process.
 # Leave as an empty list [] to process DATA_DIR directly.

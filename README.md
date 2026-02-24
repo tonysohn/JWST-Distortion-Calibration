@@ -1,7 +1,5 @@
 # JWST Distortion Calibration Pipeline
 
-# JWST Distortion Calibration Pipeline
-
 This package provides a robust, iterative polynomial distortion calibration tool for JWST instruments, specifically **NIRISS** and **FGS**. It fits Science-to-Ideal (`Sci2Idl`) and Ideal-to-Science (`Idl2Sci`) transformations using reference catalogs (e.g., Gaia, HST).
 
 ## Features
@@ -34,7 +32,20 @@ This package provides a robust, iterative polynomial distortion calibration tool
        ```bash
        python -m calibration.distortion_photometry /path/to/fits/dir
        ```
-* Place your reference catalog (FITS format with RA/Dec) in a known path.
+* Place your reference catalog (FITS format with RA/Dec) in a known path. The package currently supports the HST LMC Calibration Field catalog. You can install the catalog by doing
+	```bash
+    pip install jwst-calibration-field
+    ```
+  See the following page for details: https://github.com/spacetelescope/jwst-calibration-field
+* This package assumes input `*_cal.fits` images have WCS accurate to within ~1 arcsec, otherwise the cross-matching of observed and reference catalogs are likely to fail leading to incorrect distortion solutions. In crowded fields like the LMC Calibration Field, JWST images can be offset by a few arcseconds due to guiding on the wrong guide star. If you find such cases, the WCS of corresponding images can be *adjusted* before running the distortion calibration codes by applying an offset using the `jwst` pipeline command `adjust_wcs` as follows:
+
+	```bash
+	adjust_wcs jw01501002001_02101_00001_nis_cal.fits -u --overwrite -r -1.042e-3 -d 1.194e-4
+    # -u —overwrite updates the WCS of the original image.
+    # (Alternatively, use --suffix wcsadj_cal to create a new image.)
+    # -r applies the RA offset
+    # -d applies the Dec offset
+    ```
 
 ### 2. Run Calibration (Batch Processing)
 Run the calibration script. This script automatically detects the instrument (NIRISS/FGS), selects the appropriate polynomial degree, and can loop through designated subdirectories.
@@ -78,7 +89,7 @@ python -m calibration.distortion_combine
 Key parameters can be modified in `calibration/run_calibration.py`
 ```python
 DATA_DIR      = "/path/to/base/directory"  # Base directory containing FITS and catalogs
-# List of subdirectories (e.g., filters) to batch process. 
+# List of subdirectories (e.g., filters) to batch process.
 # Leave as an empty list [] to process DATA_DIR directly.
 BATCH_SUBDIRS = ["F277W", "F380M"]         # Sub
 

@@ -131,16 +131,13 @@ class DistortionPipeline:
             self.total_iters = i + 1
             print(f"{self.total_iters}.. ", end="", flush=True)
 
-            # 1. Update Reference Stars
             self.update_reference_ideal_coords()
-
             current_tolerance = (
                 self.config.initial_tolerance_arcsec
                 if i == 0
                 else self.config.pos_tolerance_arcsec
             )
 
-            # 2. Matching
             if i == 0:
                 s1_obs, s1_ref, info1 = match_with_pointing_prior(
                     self.obs_catalog,
@@ -153,10 +150,11 @@ class DistortionPipeline:
 
                 x_idl_all, y_idl_all = self.project_to_ideal(self.obs_catalog)
                 x_idl_s1, y_idl_s1 = self.project_to_ideal(s1_obs)
-                dx = np.median(s1_ref["x_idl"] - x_idl_s1)
-                dy = np.median(s1_ref["y_idl"] - y_idl_s1)
-                x_idl_aligned = x_idl_all + dx
-                y_idl_aligned = y_idl_all + dy
+                dx, dy = (
+                    np.median(s1_ref["x_idl"] - x_idl_s1),
+                    np.median(s1_ref["y_idl"] - y_idl_s1),
+                )
+                x_idl_aligned, y_idl_aligned = x_idl_all + dx, y_idl_all + dy
             else:
                 x_idl_aligned, y_idl_aligned = self.project_to_ideal(self.obs_catalog)
 
@@ -173,10 +171,8 @@ class DistortionPipeline:
                 print("Failed (Too few matches).")
                 break
 
-            # 3. Fit
             results = self.fit_distortion(obs_matched, ref_matched)
-            self.prior_coeffs = results
-            self.current_results = results
+            self.prior_coeffs, self.current_results = results, results
 
             self.history["rms_x"].append(results["rms_x"])
             self.history["rms_y"].append(results["rms_y"])
@@ -188,7 +184,51 @@ class DistortionPipeline:
 
             self.apply_results_to_aperture(results)
 
-        # Final Notification & Stats Output
+        # =====================================================================
+        # POST-CONVERGENCE EXACT MATHEMATICAL ROTATION ALIGNMENT
+        # =====================================================================
+        res = self.current_results
+
+        # Find exact residual rotation
+        c01_x, c01_y = res["Sci2IdlX"][2], res["Sci2IdlY"][2]
+        theta = np.arctan2(c01_x, c01_y)
+
+        # 1. Rotate Forward Model Coefficients
+        cos_t, sin_t = np.cos(theta), np.sin(theta)
+        new_s2i_x = res["Sci2IdlX"] * cos_t - res["Sci2IdlY"] * sin_t
+        new_s2i_y = res["Sci2IdlX"] * sin_t + res["Sci2IdlY"] * cos_t
+
+        # Hard-force machine zero on SIAF index 01
+        new_s2i_x[2] = 0.0
+
+        res["Sci2IdlX"], res["Sci2IdlY"] = new_s2i_x, new_s2i_y
+
+        # 2. Perfectly Regenerate Inverse Model (Idl2Sci)
+        grid_n = self.config.grid_size
+        x_edges = np.linspace(0, self.naxis1, grid_n + 1)
+        y_edges = np.linspace(0, self.naxis2, grid_n + 1)
+        xc, yc = (x_edges[:-1] + x_edges[1:]) / 2.0, (y_edges[:-1] + y_edges[1:]) / 2.0
+        xg, yg = np.meshgrid(xc, yc)
+
+        x_sci_flat = xg.flatten() - self.aperture.XSciRef
+        y_sci_flat = yg.flatten() - self.aperture.YSciRef
+
+        x_idl_grid = self.fitter.poly.evaluate(new_s2i_x, x_sci_flat, y_sci_flat)
+        y_idl_grid = self.fitter.poly.evaluate(new_s2i_y, x_sci_flat, y_sci_flat)
+
+        i2s_x, _ = self.fitter.poly.fit_robust(
+            x_idl_grid, y_idl_grid, x_sci_flat, scale=2048.0
+        )
+        i2s_y, _ = self.fitter.poly.fit_robust(
+            x_idl_grid, y_idl_grid, y_sci_flat, scale=2048.0
+        )
+
+        res["Idl2SciX"], res["Idl2SciY"] = i2s_x, i2s_y
+
+        self.current_results = res
+        self.apply_results_to_aperture(res)
+        # =====================================================================
+
         print("Done.")
         if self.converged:
             print(f"  >>> Convergence achieved in {self.total_iters} iterations.")
@@ -197,7 +237,6 @@ class DistortionPipeline:
                 f"  >>> Finished: Maximum iterations ({self.config.max_iters}) reached."
             )
 
-        res = self.current_results
         print(
             f"  >>> Final RMS: X={res['rms_x']:.3f}, Y={res['rms_y']:.3f} mas (N={res['n_stars']})"
         )
@@ -252,10 +291,10 @@ class DistortionPipeline:
             header = hdul[1].header
             ra_ref = header.get("CRVAL1", np.mean(self.obs_catalog["ra"]))
             dec_ref = header.get("CRVAL2", np.mean(self.obs_catalog["dec"]))
-            pa_v3 = header.get("PA_V3", 0.0)
+            roll_ref = header.get("ROLL_REF", header.get("PA_V3", 0.0))
 
         att = pysiaf.utils.rotations.attitude(
-            self.aperture.V2Ref, self.aperture.V3Ref, ra_ref, dec_ref, pa_v3
+            self.aperture.V2Ref, self.aperture.V3Ref, ra_ref, dec_ref, roll_ref
         )
         v2, v3 = pysiaf.utils.rotations.getv2v3(
             att, self.ref_catalog["ra"], self.ref_catalog["dec"]
@@ -466,7 +505,7 @@ class DistortionPipeline:
             f.write(f"Converged:      {self.converged}\n")
             f.write("-" * 40 + "\n")
             f.write(f"Stars in Cat:   {len(self.obs_catalog)}\n")
-            f.write(f"Stars Matched:  {self.n_matches_initial}\n")
+            f.write(f"Stars Matched:  {self.n_matches_initial} (initial)\n")
             f.write(f"Stars in Fit:   {res['n_stars']} (after 2D rejection)\n")
             f.write("-" * 40 + "\n")
             f.write(f"RMS X (mas):    {res['rms_x']:.3f}\n")
