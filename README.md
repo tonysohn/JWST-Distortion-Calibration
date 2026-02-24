@@ -30,7 +30,7 @@ This package provides a robust, iterative polynomial distortion calibration tool
     1. **`jwst1pass`**: Run the `jwst1pass` routine (found [here](https://www.stsci.edu/~jayander/JWST1PASS/CODE/)) on your FITS files to generate the catalogs.
     2. **Standalone Photometry Script**: Use the included script to extract sources and generate `.xymq` files via `photutils`. The script will automatically detect the instrument from the FITS headers:
        ```bash
-       python -m calibration.distortion_photometry /path/to/fits/dir
+       python tools/distortion_photometry /path/to/fits/dir
        ```
 * Place your reference catalog (FITS format with RA/Dec) in a known path. The package currently supports the HST LMC Calibration Field catalog. You can install the catalog by doing
 	```bash
@@ -51,7 +51,7 @@ This package provides a robust, iterative polynomial distortion calibration tool
 Run the calibration script. This script automatically detects the instrument (NIRISS/FGS), selects the appropriate polynomial degree, and can loop through designated subdirectories.
 
 ```bash
-python -m calibration.run_calibration
+python tools/run_calibration
 ```
 
 **What this does:**
@@ -64,7 +64,7 @@ python -m calibration.run_calibration
 Generate a master distortion solution by robustly averaging the individual results across your processed directories.
 
 ```bash
-python -m calibration.distortion_combine
+python tools/distortion_combine
 ```
 
 **What this does:**
@@ -72,6 +72,18 @@ python -m calibration.distortion_combine
 * Performs a **sigma-clipped average** to remove outlier fits.
 * Generate a stability plot showing the Log-RMS coefficient stability and a 2D spatial stability heatmap (in mas).
 * Write the final averaged `..._distortion_coeffs.txt` file.
+
+### 4 Trend Analysis (Multi-Epoch)
+
+Analyze the long-term physical stability of the detector optics across multiple observing epochs. Gather all your generated master coefficient files (from Step 3) across various years/epochs and place them into a single centralized directory.
+
+```bash
+python tools/distortion_trends.py /path/to/centralized/master_files_dir
+```
+**What this does:**
+* Automatically parses filenames to group data by filter (e.g., `F090W`) or detector (e.g., `FGS1_FULL`).
+* Extracts precise physical metrics: independent X/Y Pixel Scales (mas), Pixel Skew (arcsec), and Higher-Order Distortion RMS ($\mu$as).
+* Generates a comprehensive time-series 4-panel plot and a detailed ASCII summary table for each group.
 
 ## Outputs
 
@@ -86,19 +98,35 @@ python -m calibration.distortion_combine
 
 ## Configuration
 
-Key parameters can be modified in `calibration/run_calibration.py`
-```python
-DATA_DIR      = "/path/to/base/directory"  # Base directory containing FITS and catalogs
-# List of subdirectories (e.g., filters) to batch process.
-# Leave as an empty list [] to process DATA_DIR directly.
-BATCH_SUBDIRS = ["F277W", "F380M"]         # Sub
+All pipeline parameters are managed via a central `config.yml` file located in the root of the repository. This file looks like below:
 
-OBS_Q_MAX     = 0.3    # Maximum quality flag for observed stars
-OBS_SNR_MIN   = 60.0   # Minimum SNR for observed stars
-N_BRIGHT_OBS  = 400    # Number of stars to use for initial alignment
-POS_TOLERANCE = 0.1    # Final matching tolerance in arcseconds
-REF_APPLY_PM  = True   # Apply Proper Motions to Reference Catalog
-REF_EPOCH     = 2026.0 # Epoch of observation
+```yml
+paths:
+  # Input directory for FITS/XYMQ files
+  data_dir: "/path/to/base/directory"
+  # Reference catalog (GAIA/HST)
+  ref_file: "/path/to/reference_catalog.fits"
+
+batch:
+  # List of subdirectories (e.g., filters) to batch process.
+  # Leave as an empty list [] to process data_dir directly.
+  subdirs:
+    - "F090W"
+    - "F115W"
+    - "F150W"
+    # - "FGS1"
+    # - "FGS2"
+
+processing:
+  obs_q_min: 0.001
+  obs_q_max: 0.3
+  obs_snr_min: 60.0
+  n_bright_obs: 400
+  pos_tolerance: 0.1
+  initial_tolerance: 0.5
+  ref_apply_pm: true
+  use_grid_fitting: true
+  grid_size: 20
 ```
 
 ## Dependencies
@@ -107,4 +135,5 @@ REF_EPOCH     = 2026.0 # Epoch of observation
 * `scipy`
 * `astropy`
 * `pysiaf`
+* `pyyaml`
 * `photutils` (optional for rsource extraction)
