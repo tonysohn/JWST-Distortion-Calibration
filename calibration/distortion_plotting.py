@@ -11,6 +11,14 @@ import numpy as np
 from astropy.stats import sigma_clip
 from matplotlib.gridspec import GridSpec
 
+# --- Optional Publication-Quality Plotting ---
+try:
+    import scienceplots
+
+    plt.style.use(["science", "no-latex"])
+except ImportError:
+    pass
+
 
 def bin_vectors(x, y, dx, dy, grid_n=20):
     """Bins residuals to mean star position."""

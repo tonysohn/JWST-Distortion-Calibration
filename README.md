@@ -26,21 +26,37 @@ This package provides a robust, iterative polynomial distortion calibration tool
 
 ### 1. Data Preparation
 * Place your FITS images (e.g., `*_cal.fits`) in a base data directory.
-* Ensure you have corresponding source catalogs (`.xymq` files) in the same directory. There are two ways to generate these:
-    1. **`jwst1pass`**: Run the `jwst1pass` routine (found [here](https://www.stsci.edu/~jayander/JWST1PASS/CODE/)) on your FITS files to generate the catalogs.
-    2. **Standalone Photometry Script**: Use the included script to extract sources and generate `.xymq` files via `photutils`. The script will automatically detect the instrument from the FITS headers:
-       ```bash
-       python tools/distortion_photometry /path/to/fits/dir
-       ```
-* Place your reference catalog (FITS format with RA/Dec) in a known path. The package currently supports the HST LMC Calibration Field catalog. You can install the catalog by doing
-	```bash
-    pip install jwst-calibration-field
+* Ensure you have corresponding source catalogs (`.xymq` files) in the same directory.
+* You can generate these catalogs by running the `jwst1pass` routine (found [here](https://www.stsci.edu/~jayander/JWST1PASS/CODE/)) on your FITS files.
+* Alternatively, use the included standalone photometry script to extract sources and generate `.xymq` files via `photutils`. The script will automatically detect the instrument from the FITS headers (`python tools/distortion_photometry.py /path/to/fits/dir`).
+* Place your reference catalog (FITS format with RA/Dec) in a known path so it can be referenced in your `config.yml`.
+* The package currently supports the HST LMC Calibration Field catalog, which you can install via `pip`. Use the following terminal commands:
+  ```bash
+  # Note: Requires git lfs to be installed for the large catalog files
+  git lfs install
+  pip install jwst-calibration-field
     ```
   See the following page for details: https://github.com/spacetelescope/jwst-calibration-field
-* This package assumes input `*_cal.fits` images have WCS accurate to within ~1 arcsec, otherwise the cross-matching of observed and reference catalogs are likely to fail leading to incorrect distortion solutions. In crowded fields like the LMC Calibration Field, JWST images can be offset by a few arcseconds due to guiding on the wrong guide star. If you find such cases, the WCS of corresponding images can be *adjusted* before running the distortion calibration codes by applying an offset using the `jwst` pipeline command `adjust_wcs` as follows:
 
-	```bash
-	adjust_wcs jw01501002001_02101_00001_nis_cal.fits -u --overwrite -r -1.042e-3 -d 1.194e-4
+* Once installed, the reference FITS file is bundled securely inside the package. To find the exact file path to copy into your `config.yml`'s `ref_file` parameter, run this quick Python command in your terminal:
+
+  ```bash
+  python -c "import jwcf, os, glob; print(glob.glob(os.path.join(os.path.dirname(jwcf.__file__), 'data', '*.fits*'))[0])"
+  ```
+* Alternatively, you can export the catalog to a clean FITS file anywhere on your system by doing:
+  ```python
+  from jwcf import hst_catalog
+    # Load the catalog and save it locally
+    catalog = hst_catalog()
+    catalog.write("/path/to/save/hst_reference_catalog.fits", format="fits", overwrite=True)
+    ```
+* For full documentation, visit the [jwcf GitHub](https://github.com/spacetelescope/jwst-calibration-field) repository.
+* This package assumes input `*_cal.fits` images have WCS accurate to within ~1 arcsec, otherwise the cross-matching of observed and reference catalogs are likely to fail leading to incorrect distortion solutions.
+* In crowded fields like the LMC Calibration Field, JWST images can be offset by a few arcseconds due to guiding on the wrong guide star.
+* If you find such cases, the WCS of corresponding images can be *adjusted* before running the distortion calibration codes by applying an offset using the `jwst` pipeline command `adjust_wcs` as follows:
+
+  ```bash
+  adjust_wcs jw01501002001_02101_00001_nis_cal.fits -u --overwrite -r -1.042e-3 -d 1.194e-4
     # -u —overwrite updates the WCS of the original image.
     # (Alternatively, use --suffix wcsadj_cal to create a new image.)
     # -r applies the RA offset
@@ -151,3 +167,4 @@ processing:
 * `pysiaf`
 * `pyyaml`
 * `photutils` (optional for rsource extraction)
+* `SciencePlots` (optional for publication-quality figures)

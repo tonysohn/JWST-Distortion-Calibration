@@ -7,6 +7,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import ascii
 
+# --- Optional Publication-Quality Plotting ---
+try:
+    import scienceplots
+
+    plt.style.use(["science", "no-latex"])
+except ImportError:
+    pass
+
 
 def extract_metadata_and_metrics(file_path):
     """Extracts metrics, filter, and date from a master coefficient file."""
@@ -110,7 +118,7 @@ def plot_group_trends(group_name, metrics_list, output_dir):
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     fig.suptitle(
-        f"Distortion Stability Trends: {group_name}", fontsize=16, fontweight="bold"
+        f"Distortion Stability Trends: {group_name}", fontsize=20, fontweight="bold"
     )
 
     def plot_sub(ax, key, title, ylabel, color, center_zero=False):
