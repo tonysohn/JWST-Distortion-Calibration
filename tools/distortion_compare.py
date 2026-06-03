@@ -30,7 +30,23 @@ except ImportError:
 def read_distortion(file_path):
     """Safely reads the master distortion file and extracts metadata."""
     try:
-        tab = ascii.read(file_path, format="csv", comment="#")
+        # Peek at the first non-comment line to determine the delimiter
+        has_comma = False
+        with open(file_path, "r") as f:
+            for line in f:
+                stripped_line = line.strip()
+                # Find the first line that is not empty and not a comment
+                if stripped_line and not stripped_line.startswith("#"):
+                    if "," in stripped_line:
+                        has_comma = True
+                    break
+
+        # Read appropriately based on the detected delimiter
+        if has_comma:
+            tab = ascii.read(file_path, format="csv", comment="#")
+        else:
+            tab = ascii.read(file_path, format="basic", comment="#")
+
     except Exception as e:
         print(f"Error reading {file_path}: {e}")
         return None
