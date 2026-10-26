@@ -88,11 +88,9 @@ def measure_sources_photutils(
     finder = IRAFStarFinder(
         threshold=threshold,
         fwhm=fwhm,
-        minsep_fwhm=minsep_fwhm,
-        roundlo=round_lo,
-        roundhi=round_hi,
-        sharplo=sharp_lo,
-        sharphi=sharp_hi,
+        min_separation=minsep_fwhm,
+        roundness_range=(round_lo, round_hi),
+        sharpness_range=(sharp_lo, sharp_hi),
     )
 
     sources = finder(data_cps)
@@ -102,8 +100,8 @@ def measure_sources_photutils(
         return Table(names=("x", "y", "m", "q", "flux", "snr"))
 
     # --- Refine Centroids ---
-    x_init = sources["xcentroid"]
-    y_init = sources["ycentroid"]
+    x_init = sources["x_centroid"]
+    y_init = sources["y_centroid"]
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

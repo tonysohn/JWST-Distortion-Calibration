@@ -157,7 +157,7 @@ def compare_solutions(ref, comp, output_dir):
 
     # --- PLOTTING ---
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
-    fig.suptitle(f"Distortion Divergence: {comp['date']} vs {ref['date']}", fontsize=16)
+    fig.suptitle(f"Distortion Divergence: {comp['date']} vs {ref['date']}", fontsize=22)
 
     # Panel 1: Enhanced Quiver Plot
     axes[0].quiver(
@@ -170,12 +170,13 @@ def compare_solutions(ref, comp, output_dir):
         scale_units="xy",
         angles="xy",
     )
-    axes[0].set_title("Vector Field of Change", fontsize=14)
-    axes[0].set_xlabel("Detector X (pixels)")
-    axes[0].set_ylabel("Detector Y (pixels)")
+    axes[0].set_title("Vector Field of Change", fontsize=18)
+    axes[0].set_xlabel("Detector X (pixels)", fontsize=18)
+    axes[0].set_ylabel("Detector Y (pixels)", fontsize=18)
     axes[0].set_xlim(0, 2048)
     axes[0].set_ylim(0, 2048)
     axes[0].set_aspect("equal")
+    axes[0].tick_params(labelsize=15)
 
     # Panel 2: Spatial Offset Heatmap
     im = axes[1].imshow(
@@ -185,6 +186,7 @@ def compare_solutions(ref, comp, output_dir):
     axes[1].set_xlabel("Detector X (pixels)")
     axes[1].set_xlim(0, 2048)
     axes[1].set_ylim(0, 2048)
+    axes[1].tick_params(labelsize=15)
     cbar = fig.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04)
     cbar.set_label("Deviation from Reference (mas)", fontsize=12)
 
@@ -231,6 +233,7 @@ def compare_solutions(ref, comp, output_dir):
     axes[2].set_xlabel("SIAF Polynomial Index")
     axes[2].set_ylabel("Absolute Difference (Log Scale)")
     axes[2].grid(True, alpha=0.3, which="both", linestyle=":")
+    axes[2].tick_params(labelsize=15)
     axes[2].legend()
 
     plt.tight_layout()

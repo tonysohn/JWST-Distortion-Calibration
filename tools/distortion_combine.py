@@ -94,9 +94,9 @@ def plot_stability(data_cube, robust_mean, meta_data, output_dir, label):
 
     axes[0].semilogy(rms_per_coeff[:, 0], "o-", color="steelblue", label="Sci2IdlX")
     axes[0].semilogy(rms_per_coeff[:, 1], "s-", color="darkorange", label="Sci2IdlY")
-    axes[0].set_title("Coefficient Stability (Log Scale)", fontsize=14)
-    axes[0].set_xlabel("Coefficient Index (0 to N)", fontsize=12)
-    axes[0].set_ylabel("Absolute RMS Scatter", fontsize=12)
+    axes[0].set_title("Coefficient Stability (Log Scale)", fontsize=20)
+    axes[0].set_xlabel("Coefficient Index (0 to N)", fontsize=18)
+    axes[0].set_ylabel("Absolute RMS Scatter", fontsize=18)
     axes[0].grid(True, alpha=0.3, which="both", linestyle=":")
     axes[0].legend()
 
@@ -131,9 +131,9 @@ def plot_stability(data_cube, robust_mean, meta_data, output_dir, label):
     im = axes[1].imshow(
         spatial_rms_total, origin="lower", extent=[0, 2048, 0, 2048], cmap="magma"
     )
-    axes[1].set_title("Spatial Stability (Sci2Idl Variation)", fontsize=14)
-    axes[1].set_xlabel("X (SCI pixels)", fontsize=12)
-    axes[1].set_ylabel("Y (SCI pixels)", fontsize=12)
+    axes[1].set_title("Spatial Stability (Sci2Idl Variation)", fontsize=20)
+    axes[1].set_xlabel("X (SCI pixels)", fontsize=18)
+    axes[1].set_ylabel("Y (SCI pixels)", fontsize=18)
     cbar = fig.colorbar(im, ax=axes[1])
     cbar.set_label("RMS Variation Across Exposures (mas)", fontsize=12)
 

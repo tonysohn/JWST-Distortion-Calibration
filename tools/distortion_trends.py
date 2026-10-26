@@ -129,16 +129,18 @@ def plot_group_trends(group_name, metrics_list, output_dir):
             vals = vals - mean_val
             title = f"{title}\n(Zero Point: {mean_val:.3f} arcsec)"
 
+        ax.tick_params(axis="both", which="major", labelsize=15)
+
         ax.plot(dates, vals, "o-", color=color, lw=2, markersize=8)
-        ax.set_title(title)
-        ax.set_ylabel(ylabel)
+        ax.set_title(title, fontsize=18)
+        ax.set_ylabel(ylabel, fontsize=18)
         ax.grid(True, alpha=0.3)
 
         ax.ticklabel_format(useOffset=False, style="plain", axis="y")
 
         ax.xaxis.set_major_locator(mdates.AutoDateLocator())
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
-        plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha="right")
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha="right", fontsize=15)
 
     # Panel 1: Pixel Scale X
     plot_sub(
